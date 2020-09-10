@@ -55,7 +55,7 @@ class piecewiseFunction():
         if len(self.intervals)==0:
           self.intervals[len(self.intervals)+1]=interval2
           self.values[len(self.values)+1]=value2
-          print('first interval and value in piecewise')
+          if report: print('first interval and value in piecewise')
           pass
         # not first interval
         else:
@@ -230,19 +230,59 @@ class piecewiseFunction():
   # Method: get value in a point
   def get_value(self,x):
     poly=self.get_poly(x)
+    # print(poly)
+    # print(poly(x))
     return poly(x)
-  def get_integral(self):
-    partial=0
-    for i in range(0,len(self.intervals)):
-      interval=self.intervals[i+1]
-      value=self.values[i+1]
-      if i==0:
-        integral=piecewiseFunction([interval],[value.integ()])
+  def get_integral(self,interval=None):
+    # if not defined interval get indefinite integral
+    if interval==None:
+      for i in range(0,len(self.intervals)):
+        interval=self.intervals[i+1]
+        value=self.values[i+1]
+        if i==0:
+          integral=piecewiseFunction([interval],[value.integ()])
+          pass
+        else:
+          integral.add_pieces([interval],[value.integ()])
+          pass
         pass
-      else:
-        integral.add_pieces([interval],[value.integ()])
+      pass
+    # if defined interval get definite integral
+    else:
+      integral=0
+      for i in range(0,len(self.intervals)):
+        interval2=self.intervals[i+1]
+        integ=self.values[i+1].integ()
+        begin=0
+        end=0
+        if interval[0]>=interval2[0] and interval[0]<=interval2[1]:
+          begin=interval[0]
+          if interval[1]>=interval2[0] and interval[1]<=interval2[1]:
+            end=interval[1]
+          else:
+            end=interval2[1]
+            pass
+          pass
+        elif interval[0]<=interval2[0]:
+          begin=interval2[0]
+          if interval[1]>=interval2[0] and interval[1]<=interval2[1]:
+            end=interval[1]
+          else:
+            end=interval2[1]
+            pass
+          pass
+        if end!=0:
+          integral+=integ(end)-integ(begin)
         pass
       pass
     return integral
-
+  def print(self):
+    print('----------')
+    for i in range(1,len(self.intervals)+1):
+      interval=self.intervals[i]
+      value=self.values[i]
+      print(interval)
+      print(value)
+      print('----------')
+      pass
   pass

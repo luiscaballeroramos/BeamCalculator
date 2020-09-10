@@ -28,23 +28,23 @@ class beam(line):
       sys.exit('beam Checker')
       pass
     pass
-  displacements=np.zeros(3,dtype=bool)
-  def check_displacements(self):
+  translations=np.zeros(3,dtype=bool)
+  def check_translations(self):
     check=True
     msg=[]
-    if type(self.displacements)!=np.ndarray:
+    if type(self.translations)!=np.ndarray:
       check=False
-      msg.append('beam.displacements is not a ndarray (numpy)')
+      msg.append('beam.translations is not a ndarray (numpy)')
     else:
       aux=False
-      for d in self.displacements:
+      for d in self.translations:
         if type(d)!=np.bool_:
           check=False
           aux=True
           pass
         pass
       if aux is True:
-        msg.append('beam.displacements components are not bool')
+        msg.append('beam.translations components are not bool')
         pass
       pass
     if check is False:
@@ -194,20 +194,24 @@ class beam(line):
 
   reactionEnd=np.zeros(dof,dtype=float)
 
+  displacementBegin=np.zeros(dof,dtype=float)
+
+  displacementEnd=np.zeros(dof,dtype=float)
+
   referencePoints=[]
 
   forces=np.array(6,dtype=piecewiseFunction)[np.newaxis]
 
   # %% Checker inherited
   # %% Constructor
-  def __init__(self,displacements=None,rotations=None,line=None,boundaryBegin=None,boundaryEnd=None,
+  def __init__(self,translations=None,rotations=None,line=None,boundaryBegin=None,boundaryEnd=None,
                report=False):
     if line is not None:
       super().__init__(line.begin,line.end)
       pass
-    self.displacements=displacements
+    self.translations=translations
     self.rotations=rotations
-    self.dof=np.count_nonzero(displacements)+np.count_nonzero(rotations)
+    self.dof=np.count_nonzero(translations)+np.count_nonzero(rotations)
     self.boundaryBegin=boundaryBegin
     self.boundaryEnd=boundaryEnd
     self.pointLoads=[]
@@ -261,6 +265,7 @@ class beam(line):
       if self.h>0:
         self.staticDetermination='Extern Static Indetermination'
         if report: print('Extern Static Indetermination')
+        sys.exit()
         # hiperstatic
       else:
         self.staticDetermination='Mechanism'
@@ -293,8 +298,6 @@ class beam(line):
       bMatrix=self.dofReduction_matrix(bMatrix)
       self.b+=np.dot(bMatrix,pointLoad.value)
       if report: print('b updated to: {}'.format(self.b))
-      self.get_Reactions(report=report)
-      self.get_Forces(report=report)
       pass
     self.checker()
     pass
@@ -328,9 +331,16 @@ class beam(line):
       if new:
         self.forces[i]=piecewiseFunction(intervals=[interval],values=[force],report=report)
       else:
-        self.forces[i].add_pieces(intervals=[interval],values=[force],report=report)
+        if force!=np.poly1d([0]):
+          self.forces[i].add_pieces(intervals=[interval],values=[force],report=report)
+          pass
         pass
       pass
+    pass
+  def calculate(self,report=None):
+    self.get_Reactions(report=report)
+    self.get_Forces(report=report)
+    self.get_displacements(report=report)
     pass
   def get_Reactions(self,report=False):
     x = np.dot(np.linalg.inv(self.A),np.transpose(self.b))
@@ -372,9 +382,9 @@ class beam(line):
            [0,0,np.poly1d([1,0]), 0,np.poly1d([1]),0],
            [0,np.poly1d([1,0]),0, 0,0,np.poly1d([-1])]])
     load=np.transpose(self.dofAmpliation_array(self.reactionBegin))
-    print(load,interval)
+    if report: print(load,interval)
     self.add_Force(interval,forceMatrix,load,new=True,report=report)
-    self.plot_Forces()
+    if report: self.plot_Forces()
     # pointLoads
     if report: print('Point Loads Forces')
     for pointLoad in self.pointLoads:
@@ -387,10 +397,82 @@ class beam(line):
               [0,0,np.poly1d([1,-xP]), 0,np.poly1d([1]),0],
               [0,np.poly1d([1,-xP]),0, 0,0,np.poly1d([-1])]])
       load=np.transpose(self.dofAmpliation_array(pointLoad.value))
-      print(load,interval)
+      if report: print(load,interval)
       self.add_Force(interval,forceMatrix,load,report=report)
-      self.plot_Forces()
+      if report: self.plot_Forces()
       pass
+    pass
+  def get_displacements(self,report=False):
+    A=np.zeros([self.dof,2*self.dof])
+    Abegin=np.array([[-1,0,0, 0,0,0],
+               [0,-1,0, 0,0,-self.l],
+               [0,0,-1, 0,-self.l,0],
+               [0,0,0, -1,0,0],
+               [0,0,0, 0,-1,0],
+               [0,0,0, 0,0,-1]])
+    Aend=np.array([[1,0,0, 0,0,0],
+               [0,1,0, 0,0,0],
+               [0,0,1, 0,0,0],
+               [0,0,0, 1,0,0],
+               [0,0,0, 0,1,0],
+               [0,0,0, 0,0,1]])
+    # delete not existing dof
+    Abegin=self.dofReduction_matrix(Abegin)
+    Aend=self.dofReduction_matrix(Aend)
+    A[0:self.dof,0:self.dof]=np.array(Abegin)
+    A[0:self.dof,self.dof:2*self.dof]=np.array(Aend)
+    # delete restrained dof
+    for i in range(0,len(self.boundaryEnd)):
+      bE=self.boundaryEnd[len(self.boundaryEnd)-1-i]
+      if bE:
+        A=np.delete(A,2*self.dof-1-i,axis=1)
+        pass
+      pass
+    for i in range(0,len(self.boundaryBegin)):
+      bB=self.boundaryBegin[len(self.boundaryBegin)-1-i]
+      if bB:
+        A=np.delete(A,self.dof-1-i,axis=1)
+        pass
+      pass
+    # array of integrals
+    ctes=np.ones([6],dtype=float)[np.newaxis] #TODO terminos constantes de las integrales
+    b=np.zeros([6],dtype=float)[np.newaxis]
+    for i in range(0,6):
+      force=self.forces[i]
+      b[0,i]=force.get_integral(interval=[0,self.l])
+      pass
+    b=np.multiply(ctes,b)
+    b= self.dofReduction_array(b)
+    print(A)
+    print(b)
+    x = np.dot(np.linalg.inv(self.A),np.transpose(self.b))
+    print(x)
+    i=0
+    # displacementBegin
+    dB=np.zeros(self.dof,dtype=float)#[np.newaxis]
+    j=0
+    for b in self.boundaryBegin:
+      if b:
+        dB[j]=x[i]
+        i+=1
+        pass
+      j+=1
+      pass
+    self.displacementBegin=dB
+    if report: print('displacementBegin updated to: {}'.format(self.displacementBegin))
+    # displacementEnd
+    dE=np.zeros(self.dof,dtype=float)#[np.newaxis]
+    j=0
+    for b in self.boundaryEnd:
+      if b:
+        dE[j]=x[i]
+        i+=1
+        pass
+      j+=1
+      pass
+    self.displacementEnd=dE
+    if report: print('displacementEnd updated to: {}'.format(self.displacementEnd))
+    pass
     pass
   def dofAmpliation_array(self,a):
     a=a[np.newaxis]
@@ -401,13 +483,13 @@ class beam(line):
     else:
       ax=None
       pass
-    if not self.displacements[0]:
+    if not self.translations[0]:
       a=np.insert(a,0,0,axis=ax)
       pass
-    if not self.displacements[1]:
+    if not self.translations[1]:
       a=np.insert(a,1,0,axis=ax)
       pass
-    if not self.displacements[2]:
+    if not self.translations[2]:
       a=np.insert(a,2,0,axis=ax)
       pass
     if not self.rotations[0]:
@@ -423,19 +505,19 @@ class beam(line):
   def dofAmpliation_matrix(self,M):
     Mamp=np.zeros([6,6],dtype=float)
     i=0
-    if not self.displacements[0]:
+    if not self.translations[0]:
       Mamp[0]=np.zeros([1,6],dtype=float)
     else:
       Mamp[0]=self.dofAmpliation_array(M[i])
       i+=1
       pass
-    if not self.displacements[1]:
+    if not self.translations[1]:
       Mamp[1]=np.zeros([1,6],dtype=float)
     else:
       Mamp[1]=self.dofAmpliation_array(M[i])
       i+=1
       pass
-    if not self.displacements[2]:
+    if not self.translations[2]:
       Mamp[2]=np.zeros([1,6],dtype=float)
     else:
       Mamp[2]=self.dofAmpliation_array(M[i])
@@ -477,13 +559,13 @@ class beam(line):
     if not self.rotations[0]:
       a=np.delete(a,3,axis=ax)
       pass
-    if not self.displacements[2]:
+    if not self.translations[2]:
       a=np.delete(a,2,axis=ax)
       pass
-    if not self.displacements[1]:
+    if not self.translations[1]:
       a=np.delete(a,1,axis=ax)
       pass
-    if not self.displacements[0]:
+    if not self.translations[0]:
       a=np.delete(a,0,axis=ax)
     return a
   def dofReduction_matrix(self,M):
@@ -491,6 +573,7 @@ class beam(line):
       M=np.delete(M,5,axis=0)
       M=np.delete(M,5,axis=1)
       pass
+    pass
     if not self.rotations[1]:
       M=np.delete(M,4,axis=0)
       M=np.delete(M,4,axis=1)
@@ -498,15 +581,15 @@ class beam(line):
     if not self.rotations[0]:
       M=np.delete(M,3,axis=0)
       M=np.delete(M,3,axis=1)
-    if not self.displacements[2]:
+    if not self.translations[2]:
       M=np.delete(M,2,axis=0)
       M=np.delete(M,2,axis=1)
       pass
-    if not self.displacements[1]:
+    if not self.translations[1]:
       M=np.delete(M,1,axis=0)
       M=np.delete(M,1,axis=1)
       pass
-    if not self.displacements[0]:
+    if not self.translations[0]:
       M=np.delete(M,0,axis=0)
       M=np.delete(M,0,axis=1)
     return M
